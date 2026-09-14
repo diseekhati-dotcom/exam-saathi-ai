@@ -3,7 +3,9 @@ services:
     name: exam-saathi-ai
     runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: python bot.py
+    startCommand: uvicorn bot:api --host 0.0.0.0 --port $PORT
     envVars:
       - key: BOT_TOKEN
+        sync: false
+      - key: WEBHOOK_URL
         sync: false
