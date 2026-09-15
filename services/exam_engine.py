@@ -211,6 +211,20 @@ def _similarity(a: str, b: str) -> float:
     return SequenceMatcher(None, a, b).ratio()
 
 
+def _contains_alias(cand_norm: str, norm_text: str) -> bool:
+    """
+    Substring containment, but word-boundary-safe for short aliases.
+    Without this, a short alias like "si" is a trivial substring of
+    completely unrelated words (e.g. "as-SI-stant"), causing false
+    matches. Longer aliases (>=5 chars) are safe with plain containment.
+    """
+    if not cand_norm:
+        return False
+    if len(cand_norm) >= 5:
+        return cand_norm in norm_text
+    return re.search(rf"\b{re.escape(cand_norm)}\b", norm_text) is not None
+
+
 def match_exam(text: str) -> tuple[Optional[str], float]:
     """Return (exam_id, confidence 0-1) best guess for free text."""
     norm_text = _norm(text)
@@ -219,15 +233,24 @@ def match_exam(text: str) -> tuple[Optional[str], float]:
         candidates = [exam["name"]] + exam.get("aliases", [])
         for cand in candidates:
             cand_norm = _norm(cand)
-            if cand_norm and cand_norm in norm_text:
+            if not cand_norm:
+                continue
+            if _contains_alias(cand_norm, norm_text):
                 score = 0.9 + 0.1 * (len(cand_norm) / max(len(norm_text), 1))
                 score = min(score, 1.0)
-                if score > best_score:
-                    best_id, best_score = exam_id, score
+            elif len(cand_norm) >= 4:
+                # Fuzzy fallback only for longer aliases (typo tolerance).
+                # SequenceMatcher.ratio() is unreliable for short strings vs
+                # long unrelated text (e.g. "si" scores ~0.9 against "Lab
+                # Assistant" purely by chance) — dampen by length ratio so
+                # very mismatched lengths can't produce a false positive.
+                raw = _similarity(cand_norm, norm_text)
+                length_ratio = min(len(cand_norm), len(norm_text)) / max(len(cand_norm), len(norm_text))
+                score = raw * length_ratio
             else:
-                score = _similarity(cand_norm, norm_text)
-                if score > best_score:
-                    best_id, best_score = exam_id, score
+                score = 0.0
+            if score > best_score:
+                best_id, best_score = exam_id, score
     return best_id, best_score
 
 
