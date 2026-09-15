@@ -180,7 +180,7 @@
       "full_name": "Rajasthan Patwar / Patwari (RSSB)",
       "aliases": ["patwari", "patwar", "rajasthan patwari"],
       "source_label": "Official RSSB (Rajasthan Subordinate and Ministerial Services Selection Board)",
-      "official_archive": "https://rssb.rajasthan.gov.in/",
+      "official_archive": "https://rsmssb.rajasthan.gov.in/",
       "levels": {
         "patwari": {
           "id": "patwari",
@@ -192,7 +192,7 @@
               "name": "Patwari Paper",
               "aliases": ["paper"],
               "questions": null, "marks": null, "duration": null, "pattern_verified": false,
-              "official_pdf": "https://rssb.rajasthan.gov.in/storage/advertisement_item/1740055908.pdf",
+              "official_pdf": null,
               "subjects": []
             }
           }
@@ -206,7 +206,7 @@
       "full_name": "Common Eligibility Test - Senior Secondary Level",
       "aliases": ["cet senior secondary", "cet 12", "cet ss", "cet senior", "senior secondary cet"],
       "source_label": "Official RSSB",
-      "official_archive": "https://rssb.rajasthan.gov.in/",
+      "official_archive": "https://rsmssb.rajasthan.gov.in/",
       "levels": {
         "senior_secondary": {
           "id": "senior_secondary",
@@ -218,7 +218,7 @@
               "name": "CET Senior Secondary Paper",
               "aliases": ["paper"],
               "questions": null, "marks": null, "duration": null, "pattern_verified": false,
-              "official_pdf": "https://rssb.rajasthan.gov.in/storage/advertisement_item/1782217139.pdf",
+              "official_pdf": null,
               "subjects": []
             }
           }
@@ -232,7 +232,7 @@
       "full_name": "Common Eligibility Test - Graduate Level",
       "aliases": ["cet graduation", "cet grad", "cet graduate", "graduate cet"],
       "source_label": "Official RSSB",
-      "official_archive": "https://rssb.rajasthan.gov.in/",
+      "official_archive": "https://rsmssb.rajasthan.gov.in/",
       "levels": {
         "graduation": {
           "id": "graduation",
@@ -267,13 +267,16 @@
       "https://rpsc.rajasthan.gov.in/answerkeys.aspx"
     ],
     "patwari": [
-      "https://rssb.rajasthan.gov.in/"
+      "https://rsmssb.rajasthan.gov.in/show_archived?menuName=Xj4lCb9vGxpQnfLs%2FxlZ2g%3D%3D&theme=Red",
+      "https://rsmssb.rajasthan.gov.in/show_archived?menuName=AGDAnN3xlANlxQ9BZvzaeg%3D%3D"
     ],
     "cet_senior": [
-      "https://rssb.rajasthan.gov.in/"
+      "https://rsmssb.rajasthan.gov.in/show_archived?menuName=Xj4lCb9vGxpQnfLs%2FxlZ2g%3D%3D&theme=Red",
+      "https://rsmssb.rajasthan.gov.in/show_archived?menuName=AGDAnN3xlANlxQ9BZvzaeg%3D%3D"
     ],
     "cet_grad": [
-      "https://rssb.rajasthan.gov.in/"
+      "https://rsmssb.rajasthan.gov.in/show_archived?menuName=Xj4lCb9vGxpQnfLs%2FxlZ2g%3D%3D&theme=Red",
+      "https://rsmssb.rajasthan.gov.in/show_archived?menuName=AGDAnN3xlANlxQ9BZvzaeg%3D%3D"
     ]
   },
 
