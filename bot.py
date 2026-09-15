@@ -32,7 +32,8 @@ from telegram.ext import (
     filters,
 )
 
-from services import exam_engine, pyq_engine, official_search
+from services import exam_engine, pyq_engine, official_search, authority_discovery
+from handlers import exam_commands
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger("exam_saathi_ai")
@@ -274,18 +275,57 @@ async def on_text(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         await handle_other_exam_query(update, text)
         return
 
-    exam_id, confidence = exam_engine.match_exam(text)
+    # --- Work out which exam this refers to ---
+    # Primary matcher: the general discovery system (authority_discovery),
+    # which covers every exam in config/exam_sources.py — including the
+    # original 6 curated exams — and doesn't suffer the old matcher's
+    # short-alias false positives (e.g. "si" inside "as-SI-stant").
+    # The original 6 exams still get routed to the existing static
+    # Syllabus/PYQ button flow below (unchanged UI); anything else goes
+    # to the new generic discovery report.
+    identify = authority_discovery.identify_exam(text)
 
-    if not exam_id or confidence < 0.45:
+    # new-registry exam id -> (old exam_engine id, forced level id or None)
+    LEGACY_EXAM_MAP = {
+        "reet": ("reet", None),
+        "reet_level1": ("reet", "level1"),
+        "reet_level2": ("reet", "level2"),
+        "ras": ("ras", None),
+        "si": ("si", None),
+        "patwari": ("patwari", None),
+        "cet_senior_secondary": ("cet_senior", None),
+        "cet_graduation": ("cet_grad", None),
+    }
+
+    exam_id = None
+    forced_level_id = None
+
+    if identify.exam and identify.exam["id"] in LEGACY_EXAM_MAP and identify.confidence >= 0.55:
+        exam_id, forced_level_id = LEGACY_EXAM_MAP[identify.exam["id"]]
+    elif identify.exam or identify.authority:
+        # A real exam outside the legacy 6 (or at least its authority) was
+        # identified — e.g. "Lab Assistant", "VDO", "1st Grade". Hand off
+        # to the general discovery report.
+        await exam_commands.render_exam_report(update.message, text)
+        return
+    else:
+        # Last-resort fallback: the old fuzzy matcher, kept strict, in case
+        # of a typo on a legacy exam that the registry's own alias/fuzzy
+        # match didn't catch.
+        fallback_id, fallback_conf = exam_engine.match_exam(text)
+        if fallback_id and fallback_conf >= 0.6:
+            exam_id = fallback_id
+
+    if not exam_id:
         await update.message.reply_text(
-            "Mujhe samajh nahi aaya. Neeche buttons se chuniye ya exam ka poora naam likhiye "
-            "(jaise: 'REET Level 1 syllabus').",
+            "Mujhe samajh nahi aaya. Neeche buttons se chuniye, exam ka poora naam likhiye "
+            "(jaise: 'REET Level 1 syllabus'), ya /exam <naam> try karein.",
             reply_markup=exam_engine.kb_main_menu(),
         )
         return
 
     exam = exam_engine.get_exam(exam_id)
-    level_id = exam_engine.match_level(exam_id, text)
+    level_id = forced_level_id or exam_engine.match_level(exam_id, text)
     is_pyq = exam_engine.wants_pyq(text)
 
     levels = exam.get("levels", {})
@@ -405,6 +445,7 @@ async def on_error(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
 
 def register_handlers(app: Application) -> None:
     app.add_handler(CommandHandler("start", cmd_start))
+    app.add_handler(CommandHandler("exam", exam_commands.cmd_exam))
     app.add_handler(CallbackQueryHandler(on_callback))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, on_text))
     app.add_error_handler(on_error)

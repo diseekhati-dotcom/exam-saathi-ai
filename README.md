@@ -8,6 +8,107 @@ Architecture is built to expand to any Indian exam in later phases.
 
 ---
 
+## 🆕 General Rajasthan Exam Discovery System
+
+On top of the original curated Syllabus/PYQ flow, the bot now has a
+**generic, authority-driven discovery engine** that isn't limited to a
+short hardcoded exam list:
+
+- **`/exam <name>`** — e.g. `/exam CET 12`, `/exam Patwar`, `/exam Lab Assistant`,
+  `/exam 1st Grade` — identifies the exam, works out which authority
+  conducts it (RSSB / RPSC / RBSE, extensible to others), crawls that
+  authority's official archive pages, and returns verified Syllabus /
+  Question Paper / Answer Key PDFs with **Final/Revised Final answer keys
+  and Master Question Papers prioritised** over provisional/regular ones.
+- **Free text also works** for exams outside the original 6 — typing
+  `"Lab Assistant"`, `"VDO"`, `"1st Grade"` etc. routes here automatically.
+  The original 6 exams (REET, RAS, SI, Patwari, CET Senior Secondary, CET
+  Graduation) keep using the existing nicer button-based flow, unchanged.
+- **Nothing is ever shown unless verified** — every candidate PDF link is
+  checked (HTTPS-only, SSRF-safe, content-type/magic-byte verified,
+  size-capped, timeout-protected) before it's offered as a button. Broken
+  or fake-looking links are silently dropped, not shown as "maybe".
+- **Extensible by data, not code** — new exams go in
+  `config/exam_sources.py`'s `EXAM_REGISTRY`; new authorities go in its
+  `AUTHORITIES` dict. No Python changes needed for either.
+
+### New files
+
+```
+config/
+├── __init__.py
+└── exam_sources.py          # AUTHORITIES (official base URLs/archive pages)
+                              # + EXAM_REGISTRY (fast-path known exams)
+handlers/
+├── __init__.py
+└── exam_commands.py         # /exam command + report rendering
+services/
+├── authority_discovery.py   # exam name -> (exam, authority) identification
+├── document_discovery.py    # crawl + classify + tier-rank + dedupe documents
+├── pdf_validator.py         # HTTPS/SSRF/content-type/size verification
+└── exam_cache.py            # TTL cache + per-domain rate limiter
+```
+
+### Supported authorities (extensible)
+
+| Authority | Conducts (examples) | Archive pages configured? |
+|---|---|---|
+| **RSSB** (`rsmssb.rajasthan.gov.in`) | CET Senior Secondary, CET Graduation, Patwari, VDO, LDC, Clerk, Lab Assistant, Agriculture Supervisor, Animal Attendant, Junior Instructor, Supervisor, Stenographer, Informatics Assistant, Hostel Superintendent | ✅ Syllabus, Question Paper, Answer Key |
+| **RPSC** (`rpsc.rajasthan.gov.in`) | RAS, SI/Platoon Commander, School Lecturer (1st Grade), Senior Teacher (2nd Grade), Assistant Professor, Junior Legal Officer, Assistant Engineer, Statistical Officer, Agriculture Officer | ✅ Syllabus, Question Paper, Answer Key |
+| **RBSE/REET** (`rajeduboard.rajasthan.gov.in`) | REET Level 1, REET Level 2, RTET | ✅ Syllabus, Question Paper, Answer Key |
+| **Rajasthan High Court** (`hcraj.nic.in`) | Civil Judge, LDC, Junior Judicial Assistant, etc. | Authority identified only — archive pages not yet configured |
+| **Rajasthan Police** (`police.rajasthan.gov.in`) | Constable, Home Guard | Authority identified only — archive pages not yet configured |
+
+For an authority with no archive pages configured, the bot correctly
+names the authority and links to its homepage, but honestly says
+document discovery isn't set up for it yet — it never guesses.
+
+### How exam identification works
+
+1. **Registry match** (`authority_discovery.match_registry_exam`) — checks
+   the free text against `EXAM_REGISTRY`'s names/aliases first (exact
+   substring for common phrasing, dampened fuzzy match for typos on
+   longer names only — short aliases like `"si"` are excluded from fuzzy
+   matching specifically because they're accidental substrings of
+   unrelated words, e.g. "as-**si**stant").
+2. **Keyword authority guess** — if no exact exam matches, authority
+   `keyword_hints` are checked so an exam outside the registry can still
+   be routed to the right conducting body.
+3. **Honest "not found"** — if neither matches, the bot says so instead
+   of guessing.
+
+### How document discovery + priority works
+
+For each configured archive page (`document_discovery.py`):
+1. Fetch (cached, rate-limited per domain) → extract every PDF link.
+2. Keep only links whose text/href mentions the exam's aliases (this is
+   what prevents Patwari PDFs from ever appearing under a CET search).
+3. Classify by keyword: syllabus / question paper (**Master Question
+   Paper** tier > regular) / answer key (**Revised Final** > **Final** >
+   **Primary** > **Provisional**).
+4. Detect year and paper number from the link text.
+5. For each (year, paper) group, keep only the **highest-tier** document
+   — so a Final Answer Key silently replaces the Provisional one that
+   preceded it, without deleting other years.
+6. Verify each surviving candidate via `pdf_validator.verify_pdf_url`
+   (HTTPS + SSRF-safe + real PDF content-type/magic-bytes + size cap).
+   Only verified links reach the user.
+
+### Caching, rate limiting & security
+
+- `services/exam_cache.py` caches both raw archive-page scrapes and
+  fully classified/verified document lists (6-hour TTL — good enough for
+  official pages that don't change every minute), keyed by
+  `exam + authority + document_type`.
+- A `DomainRateLimiter` enforces a minimum interval between requests to
+  the same domain, so the bot is a well-behaved crawler even under load.
+- `services/pdf_validator.py` blocks non-HTTP(S) schemes, resolves and
+  rejects private/loopback/link-local IPs (SSRF), re-validates the host
+  after every redirect, caps response size, and times out every request
+  — a slow or hostile official site can never hang or crash the bot.
+
+---
+
 ## ✅ Phase 1 features (fully working)
 
 - **📋 Syllabus engine** — exam → level/stage → paper (→ subject group where
@@ -47,12 +148,22 @@ exam-saathi-ai/
 ├── render.yaml
 ├── README.md
 ├── data/
-│   └── exams.json            # all exam/syllabus data — no data in bot.py
+│   └── exams.json            # curated syllabus/UI data for the original 6 exams
+├── config/
+│   ├── __init__.py
+│   └── exam_sources.py       # authority + exam registry (see "General Discovery System")
+├── handlers/
+│   ├── __init__.py
+│   └── exam_commands.py      # /exam command + generic report rendering
 └── services/
     ├── __init__.py
-    ├── exam_engine.py        # syllabus lookups, keyboards, NL matching
-    ├── pyq_engine.py         # PYQ year discovery + formatting
-    └── official_search.py    # generic official-source crawler/classifier
+    ├── exam_engine.py        # syllabus lookups, keyboards, NL matching (original 6 exams)
+    ├── pyq_engine.py         # PYQ year discovery + formatting (original 6 exams)
+    ├── official_search.py    # low-level fetch/extract/classify primitives (shared)
+    ├── authority_discovery.py# exam name -> (exam, authority) identification
+    ├── document_discovery.py # generic multi-authority document discovery + tiering
+    ├── pdf_validator.py      # PDF link verification (HTTPS/SSRF/content-type/size)
+    └── exam_cache.py         # TTL cache + per-domain rate limiter
 ```
 
 Adding a new exam or a new phase never requires touching `bot.py`'s core
@@ -222,6 +333,21 @@ python -c "import json; json.load(open('data/exams.json'))"
 Both commands should complete with no output/errors.
 
 ---
+
+## Extending the general discovery system
+
+- **New exam under an existing authority** (RSSB/RPSC/RBSE): add one
+  entry to `EXAM_REGISTRY` in `config/exam_sources.py` — name, aliases,
+  `authority` id. That's it; `document_discovery.py` already knows how to
+  crawl that authority's configured archive pages for it.
+- **New authority entirely** (e.g. a board not yet listed): add an entry
+  to `AUTHORITIES` with its **verified** `base_url`. If you don't yet have
+  its archive-page URLs, leave `doc_pages` empty — the bot will still
+  correctly name the authority and link to its homepage rather than
+  guessing.
+- **Never** add a `base_url` or archive-page URL you haven't personally
+  verified — an unverified guess is worse than an honest "not configured
+  yet".
 
 ## Phase 1 limitations
 
