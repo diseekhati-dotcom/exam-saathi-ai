@@ -1,7 +1,12 @@
 {
   "reet": {
     "name": "REET",
-    "aliases": ["reet", "reet level 1", "reet level 2", "rajasthan reet"],
+    "aliases": [
+      "reet",
+      "reet level 1",
+      "reet level 2",
+      "rajasthan reet"
+    ],
     "authority": "RBSE / BSER",
     "official_page": "https://rajeduboard.rajasthan.gov.in/RTET-REET/RTET-REET.htm",
     "syllabus_pdf": "https://rajeduboard.rajasthan.gov.in/reet2024final121224.PDF",
@@ -17,11 +22,60 @@
             "questions": 150,
             "time": "2.5 hours",
             "subjects": [
-              {"name":"Child Development & Pedagogy","marks":30,"topics":["Child development","Learning and pedagogy","Individual differences","Inclusive education","Learning difficulties"]},
-              {"name":"Language I","marks":30,"topics":["Language comprehension","Language development","Pedagogy of language development"]},
-              {"name":"Language II","marks":30,"topics":["Comprehension","Language development","Pedagogy of language development"]},
-              {"name":"Mathematics","marks":30,"topics":["Number system","Arithmetic","Geometry","Measurement","Data handling","Mathematics pedagogy"]},
-              {"name":"Environmental Studies","marks":30,"topics":["Family and friends","Food","Shelter","Water","Travel","Things we make and do","EVS pedagogy"]}
+              {
+                "name": "Child Development & Pedagogy",
+                "marks": 30,
+                "topics": [
+                  "Child development",
+                  "Learning and pedagogy",
+                  "Individual differences",
+                  "Inclusive education",
+                  "Learning difficulties"
+                ]
+              },
+              {
+                "name": "Language I",
+                "marks": 30,
+                "topics": [
+                  "Language comprehension",
+                  "Language development",
+                  "Pedagogy of language development"
+                ]
+              },
+              {
+                "name": "Language II",
+                "marks": 30,
+                "topics": [
+                  "Comprehension",
+                  "Language development",
+                  "Pedagogy of language development"
+                ]
+              },
+              {
+                "name": "Mathematics",
+                "marks": 30,
+                "topics": [
+                  "Number system",
+                  "Arithmetic",
+                  "Geometry",
+                  "Measurement",
+                  "Data handling",
+                  "Mathematics pedagogy"
+                ]
+              },
+              {
+                "name": "Environmental Studies",
+                "marks": 30,
+                "topics": [
+                  "Family and friends",
+                  "Food",
+                  "Shelter",
+                  "Water",
+                  "Travel",
+                  "Things we make and do",
+                  "EVS pedagogy"
+                ]
+              }
             ]
           }
         }
@@ -36,10 +90,40 @@
             "questions": 150,
             "time": "2.5 hours",
             "subjects": [
-              {"name":"Child Development & Pedagogy","marks":30,"topics":["Child development","Learning and pedagogy","Inclusive education","Learning difficulties"]},
-              {"name":"Language I","marks":30,"topics":["Comprehension","Language pedagogy"]},
-              {"name":"Language II","marks":30,"topics":["Comprehension","Language pedagogy"]},
-              {"name":"Mathematics & Science OR Social Studies","marks":60,"topics":["Choose the applicable Level 2 subject group","Detailed topic breakup is in the official REET syllabus PDF"]}
+              {
+                "name": "Child Development & Pedagogy",
+                "marks": 30,
+                "topics": [
+                  "Child development",
+                  "Learning and pedagogy",
+                  "Inclusive education",
+                  "Learning difficulties"
+                ]
+              },
+              {
+                "name": "Language I",
+                "marks": 30,
+                "topics": [
+                  "Comprehension",
+                  "Language pedagogy"
+                ]
+              },
+              {
+                "name": "Language II",
+                "marks": 30,
+                "topics": [
+                  "Comprehension",
+                  "Language pedagogy"
+                ]
+              },
+              {
+                "name": "Mathematics & Science OR Social Studies",
+                "marks": 60,
+                "topics": [
+                  "Choose the applicable Level 2 subject group",
+                  "Detailed topic breakup is in the official REET syllabus PDF"
+                ]
+              }
             ]
           }
         }
@@ -48,7 +132,11 @@
   },
   "patwari": {
     "name": "Rajasthan Patwari",
-    "aliases": ["patwari", "rajasthan patwari", "patwar"],
+    "aliases": [
+      "patwari",
+      "rajasthan patwari",
+      "patwar"
+    ],
     "authority": "RSSB",
     "official_page": "https://rssb.rajasthan.gov.in/",
     "syllabus_pdf": "https://rssb.rajasthan.gov.in/storage/advertisement_item/1740055908.pdf",
@@ -64,11 +152,26 @@
             "time": "3 hours",
             "negative": "1/3 marking",
             "subjects": [
-              {"name":"General Science; History, Polity & Geography of India; General Knowledge & Current Affairs","marks":76},
-              {"name":"Rajasthan Geography, History, Culture & Polity","marks":60},
-              {"name":"General Hindi & English","marks":44},
-              {"name":"Reasoning & Basic Numerical Ability","marks":90},
-              {"name":"Basic Computer","marks":30}
+              {
+                "name": "General Science; History, Polity & Geography of India; General Knowledge & Current Affairs",
+                "marks": 76
+              },
+              {
+                "name": "Rajasthan Geography, History, Culture & Polity",
+                "marks": 60
+              },
+              {
+                "name": "General Hindi & English",
+                "marks": 44
+              },
+              {
+                "name": "Reasoning & Basic Numerical Ability",
+                "marks": 90
+              },
+              {
+                "name": "Basic Computer",
+                "marks": 30
+              }
             ]
           }
         }
@@ -77,7 +180,14 @@
   },
   "ras": {
     "name": "Rajasthan State & Subordinate Services (RAS)",
-    "aliases": ["ras", "rpsc ras", "ras pre", "ras prelims", "ras mains", "r.a.s"],
+    "aliases": [
+      "ras",
+      "rpsc ras",
+      "ras pre",
+      "ras prelims",
+      "ras mains",
+      "r.a.s"
+    ],
     "authority": "RPSC",
     "official_page": "https://rpsc.rajasthan.gov.in/syllabus.aspx",
     "pyq_archive": "https://rpsc.rajasthan.gov.in/previousquestionpapers.aspx",
@@ -92,12 +202,55 @@
             "questions": 150,
             "time": "3 hours",
             "subjects": [
-              {"name":"History, Art, Culture, Literature, Tradition & Heritage of Rajasthan","topics":["Ancient and medieval Rajasthan","Modern Rajasthan","Art and culture","Fairs, festivals, folk music and dance","Literature and heritage"]},
-              {"name":"Indian History & Culture","topics":["Ancient and medieval India","Modern India","National movement"]},
-              {"name":"Geography","topics":["World geography","Indian geography","Rajasthan geography"]},
-              {"name":"Indian Polity & Governance","topics":["Constitution","Political system","Governance"]},
-              {"name":"Economy","topics":["Indian economy","Rajasthan economy"]},
-              {"name":"General Science & Current Affairs","topics":["General science","Technology","Current events"]}
+              {
+                "name": "History, Art, Culture, Literature, Tradition & Heritage of Rajasthan",
+                "topics": [
+                  "Ancient and medieval Rajasthan",
+                  "Modern Rajasthan",
+                  "Art and culture",
+                  "Fairs, festivals, folk music and dance",
+                  "Literature and heritage"
+                ]
+              },
+              {
+                "name": "Indian History & Culture",
+                "topics": [
+                  "Ancient and medieval India",
+                  "Modern India",
+                  "National movement"
+                ]
+              },
+              {
+                "name": "Geography",
+                "topics": [
+                  "World geography",
+                  "Indian geography",
+                  "Rajasthan geography"
+                ]
+              },
+              {
+                "name": "Indian Polity & Governance",
+                "topics": [
+                  "Constitution",
+                  "Political system",
+                  "Governance"
+                ]
+              },
+              {
+                "name": "Economy",
+                "topics": [
+                  "Indian economy",
+                  "Rajasthan economy"
+                ]
+              },
+              {
+                "name": "General Science & Current Affairs",
+                "topics": [
+                  "General science",
+                  "Technology",
+                  "Current events"
+                ]
+              }
             ]
           }
         }
@@ -106,48 +259,151 @@
         "label": "Mains",
         "syllabus_pdf": "https://rpsc.rajasthan.gov.in/Static/Syllabus/238A2E0E-B0D0-49C2-8E5E-D299A915037F.pdf",
         "papers": {
-          "p1": {"label":"Paper I — General Studies I","marks":200,"time":"3 hours","units":["Unit I — History","Unit II — Economics","Unit III — Sociology, Management, Accounting & Auditing"]},
-          "p2": {"label":"Paper II — General Studies II","marks":200,"time":"3 hours","units":["Unit I — Administrative Ethics","Unit II — General Science & Technology","Unit III — Earth Science (Geography & Geology)"]},
-          "p3": {"label":"Paper III — General Studies III","marks":200,"time":"3 hours","units":["Unit I — Indian Polity, Governance, India & International Affairs and Current Affairs","Unit II — Concepts, Issues & Dynamics of Public Administration","Unit III — Behavior and Law"]},
-          "p4": {"label":"Paper IV — General Hindi & General English","marks":200,"time":"3 hours","units":["General Hindi","General English","Essay"]}
+          "p1": {
+            "label": "Paper I — General Studies I",
+            "marks": 200,
+            "time": "3 hours",
+            "units": [
+              "Unit I — History",
+              "Unit II — Economics",
+              "Unit III — Sociology, Management, Accounting & Auditing"
+            ]
+          },
+          "p2": {
+            "label": "Paper II — General Studies II",
+            "marks": 200,
+            "time": "3 hours",
+            "units": [
+              "Unit I — Administrative Ethics",
+              "Unit II — General Science & Technology",
+              "Unit III — Earth Science (Geography & Geology)"
+            ]
+          },
+          "p3": {
+            "label": "Paper III — General Studies III",
+            "marks": 200,
+            "time": "3 hours",
+            "units": [
+              "Unit I — Indian Polity, Governance, India & International Affairs and Current Affairs",
+              "Unit II — Concepts, Issues & Dynamics of Public Administration",
+              "Unit III — Behavior and Law"
+            ]
+          },
+          "p4": {
+            "label": "Paper IV — General Hindi & General English",
+            "marks": 200,
+            "time": "3 hours",
+            "units": [
+              "General Hindi",
+              "General English",
+              "Essay"
+            ]
+          }
         }
       }
     }
   },
   "si": {
     "name": "Rajasthan Sub Inspector / Platoon Commander",
-    "aliases": ["si", "sub inspector", "rajasthan si", "rpsc si", "police si", "platoon commander"],
+    "aliases": [
+      "si",
+      "sub inspector",
+      "rajasthan si",
+      "rpsc si",
+      "police si",
+      "platoon commander"
+    ],
     "authority": "RPSC",
     "official_page": "https://rpsc.rajasthan.gov.in/syllabus.aspx",
     "syllabus_pdf": "https://rpsc.rajasthan.gov.in/Static/Syllabus/A1E1781F-8C6F-44BD-9DF2-E75D3D258617.pdf",
-    "scheme_pdf": "https://rpsc.rajasthan.gov.in/Static/Syllabus/09B48838-2D9E-4E50-BC3E-3726268AE18B.pdf",
+    "scheme_pdf": "https://rpsc.rajasthan.gov.in/Static/Syllabus/09B48838-28A3-4BB9-8236-B31C8AE64D73.pdf",
     "pyq_archive": "https://rpsc.rajasthan.gov.in/previousquestionpapers.aspx",
     "stages": {
       "written": {
         "label": "Written Examination",
         "papers": {
-          "p1": {"label":"Paper I — General Hindi","marks":200,"questions":100,"time":"3 hours","units":["General Hindi"]},
-          "p2": {"label":"Paper II — General Knowledge & General Science","marks":200,"questions":100,"time":"3 hours","units":["Rajasthan history, art, culture, literature, tradition & heritage","Indian history","World & India geography","General science and general knowledge"]}
-        }
+          "p1": {
+            "label": "Paper I — General Hindi",
+            "marks": 200,
+            "questions": 100,
+            "time": "3 hours",
+            "units": [
+              "General Hindi"
+            ]
+          },
+          "p2": {
+            "label": "Paper II — General Knowledge & General Science",
+            "marks": 200,
+            "questions": 100,
+            "time": "3 hours",
+            "units": [
+              "Rajasthan history, art, culture, literature, tradition & heritage",
+              "Indian history",
+              "World & India geography",
+              "General science and general knowledge"
+            ]
+          }
+        },
+        "syllabus_pdf": "https://rpsc.rajasthan.gov.in/Static/Syllabus/A1E1781F-8C6F-44BD-9DF2-E75D3D258617.pdf"
       }
     }
   },
   "cet12": {
     "name": "Rajasthan CET Senior Secondary Level",
-    "aliases": ["cet 12", "cet 12th", "cet senior secondary", "cet senior secondary level", "cet 12th level"],
+    "aliases": [
+      "cet 12",
+      "cet 12th",
+      "cet senior secondary",
+      "cet senior secondary level",
+      "cet 12th level"
+    ],
     "authority": "RSSB",
     "official_page": "https://rssb.rajasthan.gov.in/",
-    "notice_pdf": "https://rssb.rajasthan.gov.in/",
     "pyq_archive": "https://rssb.rajasthan.gov.in/",
-    "stages": {"main":{"label":"Senior Secondary Level","papers":{"p1":{"label":"CET Senior Secondary Level","marks":null,"questions":null,"time":null,"units":["Official detailed syllabus is linked from the RSSB CET section; bot will not invent missing details."]}}}}
+    "stages": {
+      "main": {
+        "label": "Senior Secondary Level",
+        "papers": {
+          "p1": {
+            "label": "CET Senior Secondary Level",
+            "marks": null,
+            "questions": null,
+            "time": null,
+            "units": [
+              "Official detailed syllabus is linked from the RSSB CET section; bot will not invent missing details."
+            ]
+          }
+        }
+      }
+    }
   },
   "cetgrad": {
     "name": "Rajasthan CET Graduation Level",
-    "aliases": ["cet graduation", "cet graduate", "cet graduation level", "cet grad", "cet graduate level"],
+    "aliases": [
+      "cet graduation",
+      "cet graduate",
+      "cet graduation level",
+      "cet grad",
+      "cet graduate level"
+    ],
     "authority": "RSSB",
     "official_page": "https://rssb.rajasthan.gov.in/",
-    "notice_pdf": "https://rssb.rajasthan.gov.in/storage/news_item/1725875861.pdf",
     "pyq_archive": "https://rssb.rajasthan.gov.in/",
-    "stages": {"main":{"label":"Graduation Level","papers":{"p1":{"label":"CET Graduation Level","marks":null,"questions":null,"time":null,"units":["Official detailed syllabus is linked from the RSSB CET section; bot will not invent missing details."]}}}}
+    "stages": {
+      "main": {
+        "label": "Graduation Level",
+        "papers": {
+          "p1": {
+            "label": "CET Graduation Level",
+            "marks": null,
+            "questions": null,
+            "time": null,
+            "units": [
+              "Official detailed syllabus is linked from the RSSB CET section; bot will not invent missing details."
+            ]
+          }
+        }
+      }
+    }
   }
 }
