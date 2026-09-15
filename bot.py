@@ -90,11 +90,10 @@ async def show_other(q,context,section):
 async def show_pyq_known(q,key):
     e=CATALOG[key]
     rows=[]
-    if e.get('pyq_archive'): rows.append([InlineKeyboardButton('📝 Official PYQ / Old Paper Archive',url=e['pyq_archive'])])
-    rows.append([InlineKeyboardButton('🔎 Find Official PDF',callback_data=f'findpq:{key}')])
+    rows.append([InlineKeyboardButton('📄 Find Official PYQ PDF',callback_data=f'findpq:{key}')])
     rows.append([InlineKeyboardButton('📋 Syllabus',callback_data=f'sy:e:{key}')])
     rows.append([InlineKeyboardButton('◀️ Back',callback_data='pq')])
-    await q.edit_message_text(f"📝 {e['name']}\n\nOfficial old-paper/PYQ source खोलें या official PDF खोजें 👇",reply_markup=InlineKeyboardMarkup(rows))
+    await q.edit_message_text(f"📝 {e['name']}\n\nOfficial question-paper PDF खोज रहा हूँ.\n\nPDF मिलने पर bot सीधे PDF link देगा — generic website/archive link नहीं. 👇",reply_markup=InlineKeyboardMarkup(rows))
 
 async def do_dynamic(update,context,exam,kind,edit_message=None):
     target=edit_message
@@ -109,9 +108,9 @@ async def do_dynamic(update,context,exam,kind,edit_message=None):
     rows=[]
     for r in results[:8]:
         icon='📄' if r['pdf'] else '🌐'
-        rows.append([InlineKeyboardButton(icon+' '+r['title'][:52],url=r['url'])])
+        rows.append([InlineKeyboardButton(icon+' '+('PDF: ' if r['pdf'] else '')+r['title'][:45],url=r['url'])])
     rows.append([InlineKeyboardButton('◀️ Back',callback_data=kind)])
-    await target.edit_text(f'🔎 {exam}\n\nOfficial-domain results मिले हैं. PDF/source खोलने के लिए चुनें 👇',reply_markup=InlineKeyboardMarkup(rows))
+    await target.edit_text(f'🔎 {exam}\n\nOfficial source से actual PDF links मिले हैं. सीधे PDF खोलने के लिए चुनें 👇',reply_markup=InlineKeyboardMarkup(rows))
 
 async def button(update:Update,context:ContextTypes.DEFAULT_TYPE):
     q=update.callback_query; await q.answer(); d=q.data
@@ -127,6 +126,8 @@ async def button(update:Update,context:ContextTypes.DEFAULT_TYPE):
         await show_other(q,context,d.split(':')[0]); return
     if d.startswith('findpq:'):
         key=d.split(':',1)[1]; await do_dynamic(None,context,CATALOG[key]['name'],'pq',q); return
+    if d.startswith('findsy:'):
+        key=d.split(':',1)[1]; await do_dynamic(None,context,CATALOG[key]['name'],'sy',q); return
     p=d.split(':')
     if len(p)==3 and p[1]=='e':
         section,key=p[0],p[2]
@@ -140,7 +141,10 @@ async def button(update:Update,context:ContextTypes.DEFAULT_TYPE):
         section,key,stage,pk=p
         rows=[]
         src=paper_source(key,stage)
-        rows.append([InlineKeyboardButton('📄 Official Syllabus PDF',url=src)])
+        if src and src.lower().split('?')[0].endswith('.pdf'):
+            rows.append([InlineKeyboardButton('📄 Official Syllabus PDF',url=src)])
+        else:
+            rows.append([InlineKeyboardButton('🔎 Find Official Syllabus PDF',callback_data=f'findsy:{key}')])
         if section=='sy': rows.append([InlineKeyboardButton('📝 PYQ / Old Papers',callback_data=f'pq:e:{key}')])
         rows.append([InlineKeyboardButton('◀️ Back',callback_data=f'{section}:s:{key}:{stage}')])
         await q.edit_message_text(detail_text(key,stage,pk),reply_markup=InlineKeyboardMarkup(rows)); return
@@ -165,13 +169,13 @@ async def text_handler(update:Update,context:ContextTypes.DEFAULT_TYPE):
         if wants_pyq:
             await show_pyq_message(update,key); return
         if wants_syl:
-            await update.message.reply_text(detail_text(key,stage,pk),reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('📄 Official Syllabus PDF',url=paper_source(key,stage))],[InlineKeyboardButton('📝 PYQ',callback_data=f'pq:e:{key}')]])); return
+            await update.message.reply_text(detail_text(key,stage,pk),reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('📄 Official Syllabus PDF',url=paper_source(key,stage)) if paper_source(key,stage).lower().split('?')[0].endswith('.pdf') else InlineKeyboardButton('🔎 Find Official Syllabus PDF',callback_data=f'findsy:{key}')],[InlineKeyboardButton('📝 PYQ',callback_data=f'pq:e:{key}')]])); return
         await update.message.reply_text(f"🔎 {CATALOG[key]['name']}\n\nक्या चाहिए?",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('📋 Syllabus',callback_data=f'sy:e:{key}'),InlineKeyboardButton('📝 PYQ',callback_data=f'pq:e:{key}')],[InlineKeyboardButton('🏠 Main Menu',callback_data='home')]])); return
     await update.message.reply_text('🤖 Exam name या अपना सवाल लिखें.\n\nSyllabus/PYQ के लिए main menu से option भी चुन सकते हैं.',reply_markup=main_menu())
 
 async def show_pyq_message(update,key):
     e=CATALOG[key]
-    await update.message.reply_text(f"📝 {e['name']} — PYQ / Old Papers\n\nOfficial archive या official PDF खोजें 👇",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('📝 Official Archive',url=e.get('pyq_archive',e.get('official_page')))],[InlineKeyboardButton('🔎 Find Official PDF',callback_data=f'findpq:{key}')],[InlineKeyboardButton('📋 Syllabus',callback_data=f'sy:e:{key}')]]))
+    await update.message.reply_text(f"📝 {e['name']} — PYQ / Old Papers\n\nBot official source से actual PDF खोजेगा. Generic website link नहीं दिया जाएगा. 👇",reply_markup=InlineKeyboardMarkup([[InlineKeyboardButton('📄 Find Official PYQ PDF',callback_data=f'findpq:{key}')],[InlineKeyboardButton('📋 Syllabus',callback_data=f'sy:e:{key}')]]))
 
 telegram_app.add_handler(CommandHandler('start',start))
 telegram_app.add_handler(CallbackQueryHandler(button))
