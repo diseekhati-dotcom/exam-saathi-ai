@@ -1,152 +1,148 @@
 """
-handlers/exam_commands.py
---------------------------
-New, additive entry point: `/exam <name>` plus a free-text fallback used
-by bot.py when the old static exam_engine can't confidently match
-something. This does NOT touch the existing /start menu, Syllabus, or
-PYQ button flows — those keep working exactly as before.
+Exam command handlers — logic layer.
 
-Rendering matches the requested output format:
+Deliberately returns plain dict/list data (never python-telegram-bot
+objects) so this entire module can be unit-tested without the `telegram`
+package installed. main.py's adapter layer turns these plain structures
+into real InlineKeyboardMarkup/InlineKeyboardButton objects and wires
+them to python-telegram-bot's Application.
 
-  🎓 <Exam Name>
+Button spec shape used throughout this module:
+    {"text": str, "callback_data": str}   -> a callback (in-bot navigation)
+    {"text": str, "url": str}             -> a URL button (opens a link)
 
-  📚 Syllabus
-  • <year> <label>  [button]
-
-  📄 Previous Year Papers
-  • <year> – Paper <n>  [button]
-
-  ✅ Answer Keys
-  • <year> – <tier label>  [button]
-
-  🏛 Official Source: <authority>  [homepage button]
+Message spec shape:
+    {"text": str, "buttons": List[List[button_spec]], "parse_mode": "HTML"}
 """
+from typing import List, Optional
 
-from __future__ import annotations
-
-import logging
-
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
-from telegram.constants import ParseMode
-from telegram.ext import ContextTypes
-
-from services import authority_discovery, document_discovery
-
-logger = logging.getLogger("exam_saathi_ai.exam_commands")
+from database.models import (
+    Document,
+    DOC_TYPE_SYLLABUS,
+    DOC_TYPE_QUESTION_PAPER,
+    DOC_TYPE_ANSWER_KEY,
+    VERIFICATION_VERIFIED,
+    VERIFICATION_SOURCE_PAGE_ONLY,
+)
+from services import authority_registry, exam_service
 
 DOC_TYPE_LABELS = {
-    "syllabus": "📚 Syllabus",
-    "question_paper": "📄 Previous Year Papers",
-    "answer_key": "✅ Answer Keys",
+    DOC_TYPE_SYLLABUS: "📘 Syllabus",
+    DOC_TYPE_QUESTION_PAPER: "📄 Question Papers",
+    DOC_TYPE_ANSWER_KEY: "🔑 Answer Keys",
 }
 
-TIER_DISPLAY = {
-    "revised_final": "Revised Final Answer Key",
-    "final": "Final Answer Key",
-    "primary": "Primary Answer Key",
-    "provisional": "Provisional Answer Key",
-    "master": "Master Question Paper",
-    "regular": "Question Paper",
-    "syllabus": "Official Syllabus",
-    "unknown": "Document",
-}
+NOT_FOUND_TEXT = (
+    "❌ Exam information could not be verified right now.\n\n"
+    "I couldn't confidently match that to a known Rajasthan exam. "
+    "Try a shorter name, e.g. <code>/exam SI</code>, <code>/exam Patwar</code>, "
+    "or <code>/exam REET Level 1</code>."
+)
+
+UNAVAILABLE_TEXT = "⚠️ Official document is currently unavailable."
 
 
-def _entry_label(doc_type: str, entry) -> str:
-    year = entry.year or "Year N/A"
-    tier_text = TIER_DISPLAY.get(entry.tier_label, "Document")
-    if doc_type == "question_paper" and entry.paper_number:
-        return f"{year} – Paper {entry.paper_number}"
-    if doc_type == "answer_key" and entry.paper_number:
-        return f"{year} – {tier_text} (Paper {entry.paper_number})"
-    return f"{year} – {tier_text}"
+def build_exam_not_found_message(query: str) -> dict:
+    return {"text": NOT_FOUND_TEXT, "buttons": [], "parse_mode": "HTML"}
 
 
-def build_report_text(exam_name: str, authority: dict, docs: dict) -> str:
-    lines = [f"🎓 <b>{exam_name}</b>", ""]
-    for doc_type in ("syllabus", "question_paper", "answer_key"):
-        lines.append(DOC_TYPE_LABELS[doc_type])
-        entries = docs.get(doc_type, [])
-        if entries:
-            for e in entries[:10]:
-                lines.append(f"• {_entry_label(doc_type, e)}")
-        else:
-            if authority.get("doc_pages", {}).get(doc_type):
-                lines.append("⚠️ Official PDF not found.")
-            else:
-                lines.append("⚠️ Official PDF currently unavailable (source not yet configured).")
-        lines.append("")
-    lines.append(f"🏛 Official Source: {authority['name']}")
-    return "\n".join(lines)
+def build_exam_card(exam_id: str) -> Optional[dict]:
+    exam = exam_service.get_exam(exam_id)
+    if exam is None:
+        return None
+    authority = authority_registry.get_authority(exam["authority_id"])
+    authority_name = authority.name if authority else exam["authority_id"]
 
-
-def build_report_keyboard(docs: dict, authority: dict) -> InlineKeyboardMarkup:
-    rows = []
-    for doc_type in ("syllabus", "question_paper", "answer_key"):
-        for e in docs.get(doc_type, [])[:10]:
-            rows.append([InlineKeyboardButton(f"📄 {_entry_label(doc_type, e)}", url=e.url)])
-    if authority.get("base_url"):
-        rows.append([InlineKeyboardButton(f"🏛 {authority['name']} Official Website", url=authority["base_url"])])
-    rows.append([InlineKeyboardButton("🏠 Main Menu", callback_data="menu:main")])
-    return InlineKeyboardMarkup(rows)
-
-
-async def render_exam_report(message_target, query_text: str) -> None:
-    """
-    message_target: an object with an async .reply_text(text, parse_mode=,
-    reply_markup=) method — works for update.message directly.
-    """
-    result = authority_discovery.identify_exam(query_text)
-
-    if result.exam and result.authority:
-        await message_target.reply_text("🔎 Official source check kar rahe hain, ek moment...")
-        try:
-            docs = await document_discovery.discover_documents(result.exam, result.authority)
-        except Exception:
-            logger.exception("document_discovery failed for exam=%s", result.exam["id"])
-            await message_target.reply_text(
-                "⚠️ Official source abhi access nahi ho pa raha. Thodi der baad try karein.",
-            )
-            return
-
-        text = build_report_text(result.exam["name"], result.authority, docs)
-        kb = build_report_keyboard(docs, result.authority)
-        await message_target.reply_text(text, parse_mode=ParseMode.HTML, reply_markup=kb)
-        return
-
-    if result.authority and not result.exam:
-        lines = [
-            f"🏛 Conducting Authority (best guess): <b>{result.authority['name']}</b>",
-            "",
-            "Is exam ke liye specific document discovery abhi configured nahi hai, "
-            "isliye main koi galat/fake PDF link nahi dikha sakta.",
-            "",
-            "Official website par khud check kar sakte hain:",
-        ]
-        rows = []
-        if result.authority.get("base_url"):
-            rows.append([InlineKeyboardButton(f"🏛 {result.authority['name']} Official Website",
-                                               url=result.authority["base_url"])])
-        rows.append([InlineKeyboardButton("🏠 Main Menu", callback_data="menu:main")])
-        await message_target.reply_text("\n".join(lines), parse_mode=ParseMode.HTML,
-                                         reply_markup=InlineKeyboardMarkup(rows))
-        return
-
-    await message_target.reply_text(
-        "⚠️ Is exam/authority ko official source se verify nahi kar paaya.\n\n"
-        "Exam ka pura naam try karein (jaise: 'RSSB Patwari' ya 'RPSC 1st Grade')."
+    text = (
+        f"🎓 <b>Exam:</b> {exam['name']}\n"
+        f"🏢 <b>Authority:</b> {authority_name}\n"
     )
+    buttons = [
+        [{"text": DOC_TYPE_LABELS[DOC_TYPE_SYLLABUS], "callback_data": f"dt:{exam_id}:{DOC_TYPE_SYLLABUS}"}],
+        [{"text": DOC_TYPE_LABELS[DOC_TYPE_QUESTION_PAPER], "callback_data": f"dt:{exam_id}:{DOC_TYPE_QUESTION_PAPER}"}],
+        [{"text": DOC_TYPE_LABELS[DOC_TYPE_ANSWER_KEY], "callback_data": f"dt:{exam_id}:{DOC_TYPE_ANSWER_KEY}"}],
+    ]
+    if authority and authority.official_pages:
+        home = authority.official_pages.get("home") or next(iter(authority.official_pages.values()))
+        buttons.append([{"text": "🌐 Official Source", "url": home}])
+
+    return {"text": text, "buttons": buttons, "parse_mode": "HTML"}
 
 
-async def cmd_exam(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    query_text = " ".join(context.args) if context.args else ""
-    if not query_text:
-        await update.message.reply_text(
-            "Exam ka naam likhiye. Jaise:\n/exam CET 12\n/exam SI\n/exam Patwar\n/exam REET"
-        )
-        return
-    try:
-        await render_exam_report(update.message, query_text)
-    except Exception:
-        logger.exception("cmd_exam failed for query=%s", query_text)
-        await update.message.reply_text("⚠️ Kuch gadbad ho gayi. Dobara try karein.")
+def build_years_menu(exam_id: str, doc_type: str) -> dict:
+    exam = exam_service.get_exam(exam_id)
+    if exam is None:
+        return build_exam_not_found_message(exam_id)
+
+    years = exam_service.available_years(exam_id, doc_type)
+    label = DOC_TYPE_LABELS.get(doc_type, doc_type)
+
+    if not years:
+        # No verified year-specific documents discovered — still show a
+        # source-page fallback if one exists, never a fake year list.
+        docs = exam_service.find_documents(exam_id, doc_type)
+        buttons = _document_buttons(docs)
+        text = f"{label}\n\n{UNAVAILABLE_TEXT}" if not buttons else f"{label}"
+        return {"text": text, "buttons": buttons, "parse_mode": "HTML"}
+
+    buttons = [
+        [{"text": year, "callback_data": f"yr:{exam_id}:{doc_type}:{year}"}]
+        for year in years
+    ]
+    return {"text": f"{label}\n\nSelect a year:", "buttons": buttons, "parse_mode": "HTML"}
+
+
+def build_documents_for_year(exam_id: str, doc_type: str, year: str) -> dict:
+    label = DOC_TYPE_LABELS.get(doc_type, doc_type)
+    docs = exam_service.find_documents(exam_id, doc_type, year=year)
+    docs = [d for d in docs if d.year == year or d.verification_status == VERIFICATION_SOURCE_PAGE_ONLY]
+    buttons = _document_buttons(docs)
+    if not buttons:
+        text = f"{label} — {year}\n\n{UNAVAILABLE_TEXT}"
+    else:
+        text = f"{label} — {year}"
+    return {"text": text, "buttons": buttons, "parse_mode": "HTML"}
+
+
+def _document_title(doc: Document) -> str:
+    parts = []
+    if doc.paper:
+        parts.append(f"Paper {doc.paper}")
+    if doc.shift:
+        parts.append(f"Shift {doc.shift}")
+    if doc.doc_set:
+        parts.append(f"Set {doc.doc_set}")
+    if doc.level:
+        parts.append(f"Level {doc.level}")
+    if doc.answer_key_status:
+        parts.append(doc.answer_key_status.replace("_", " ").title())
+    if parts:
+        return " – ".join(parts)
+    return doc.title[:60] if doc.title else "Document"
+
+
+def _document_buttons(docs: List[Document]) -> List[List[dict]]:
+    """
+    Build one button per document. Only two kinds of button are ever
+    produced:
+      - VERIFIED  -> a URL button pointing at doc.pdf_url (the final,
+        redirect-resolved, magic-byte-checked PDF URL — never the
+        archive/listing page it was discovered on).
+      - SOURCE_PAGE_ONLY -> a clearly-labelled "🌐 Official Source" URL
+        button pointing at the source page, never disguised as a PDF.
+    REJECTED documents produce no button at all (never shown as an
+    option), satisfying "do not create empty/fake buttons".
+    """
+    buttons: List[List[dict]] = []
+    for doc in docs:
+        if doc.verification_status == VERIFICATION_VERIFIED and doc.pdf_url:
+            icon = {
+                DOC_TYPE_SYLLABUS: "📘",
+                DOC_TYPE_QUESTION_PAPER: "📄",
+                DOC_TYPE_ANSWER_KEY: "🔑",
+            }.get(doc.doc_type, "📄")
+            text = f"{icon} Download {_document_title(doc)} (PDF)"
+            buttons.append([{"text": text, "url": doc.pdf_url}])
+        elif doc.verification_status == VERIFICATION_SOURCE_PAGE_ONLY and doc.source_page:
+            buttons.append([{"text": "🌐 Official Source", "url": doc.source_page}])
+    return buttons
