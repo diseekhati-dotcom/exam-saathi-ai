@@ -1,269 +1,385 @@
-# Rajasthan Exam Information Bot (Phase 1)
+# Exam Saathi AI
 
-A Telegram bot that finds **official** syllabus, previous question papers,
-and answer keys for Rajasthan government/competitive exams, verified
-directly from the conducting authority's own website — never a coaching
-site, never a guessed URL.
+**Telegram display name:** Study Saathi AI
 
-## Honesty notice (read this first)
+A Hindi-first AI exam study assistant for competitive and government exams.
+**Phase 1 focus:** Rajasthan exams (REET, RAS, Rajasthan SI, Patwari, Rajasthan CET).
+Architecture is built to expand to any Indian exam in later phases.
 
-This project was built in a sandboxed environment **with no outbound
-network access**. That means:
+---
 
-- All Python code (scraper, PDF validator, Telegram bot, cache, security
-  layer) is real and functional — nothing here is a stub or a mock.
-- **Live scraping/verification against rssb.rajasthan.gov.in,
-  rsmssb.rajasthan.gov.in, rpsc.rajasthan.gov.in, etc. could not be run
-  during the build.** The pipeline was instead proven correct with an
-  extensive **offline** test suite (106 tests, all passing — see below)
-  that feeds it realistic fake HTTP responses (real PDFs, HTML error
-  pages, 404s, redirects, tiny fake PDFs, SSRF attempts, etc.) and checks
-  it does the right thing with each.
-- A small number of official authority URLs were checked with live web
-  search during the build (see "Web-verified seeds" below) to make sure
-  the registry starts from real domains, not guesses.
-- Run `test_live.py` after deploying (see below) to get real, live
-  verification results.
+## 🆕 General Rajasthan Exam Discovery System
 
-## What Phase 1 actually does
+On top of the original curated Syllabus/PYQ flow, the bot now has a
+**generic, authority-driven discovery engine** that isn't limited to a
+short hardcoded exam list:
 
-1. `/exam <name>` — normalizes the exam name (handles aliases like "SI" /
-   "Sub Inspector", "CET 12" / "CET Senior Secondary", "3rd Grade" /
-   "Primary Teacher Level 1", etc.) and matches it against a seed exam
-   registry.
-2. Shows an exam card with the conducting authority and three buttons:
-   Syllabus / Question Papers / Answer Keys.
-3. Each button triggers **live discovery**: the bot fetches the
-   authority's real official page(s), parses every link, and keeps only
-   the ones whose text matches the exam + document type + year.
-4. Every candidate URL is run through a real PDF validator before it is
-   ever shown: HTTP status, redirect-chain resolution, final URL,
-   Content-Type, `%PDF-` magic bytes, minimum file size, HTML/login/error
-   page detection, and a best-effort identity check (year/shift/set/paper
-   tokens).
-5. Only URLs that pass become a "📄 Download ... (PDF)" button, using the
-   **final verified PDF URL** — never the archive/listing page. If
-   nothing verifies, the bot shows a clearly separate "🌐 Official
-   Source" button to the real listing page, or an honest
-   "⚠️ Official document is currently unavailable" message. It never
-   fabricates a link.
-6. Results are cached (SQLite) for `CACHE_TTL_SECONDS` (default 6h) keyed
-   by authority+exam+doc_type+year+paper+subject+shift+set, so the bot
-   doesn't re-scrape on every Telegram tap.
+- **`/exam <name>`** — e.g. `/exam CET 12`, `/exam Patwar`, `/exam Lab Assistant`,
+  `/exam 1st Grade` — identifies the exam, works out which authority
+  conducts it (RSSB / RPSC / RBSE, extensible to others), crawls that
+  authority's official archive pages, and returns verified Syllabus /
+  Question Paper / Answer Key PDFs with **Final/Revised Final answer keys
+  and Master Question Papers prioritised** over provisional/regular ones.
+- **Free text also works** for exams outside the original 6 — typing
+  `"Lab Assistant"`, `"VDO"`, `"1st Grade"` etc. routes here automatically.
+  The original 6 exams (REET, RAS, SI, Patwari, CET Senior Secondary, CET
+  Graduation) keep using the existing nicer button-based flow, unchanged.
+- **Nothing is ever shown unless verified** — every candidate PDF link is
+  checked (HTTPS-only, SSRF-safe, content-type/magic-byte verified,
+  size-capped, timeout-protected) before it's offered as a button. Broken
+  or fake-looking links are silently dropped, not shown as "maybe".
+- **Extensible by data, not code** — new exams go in
+  `config/exam_sources.py`'s `EXAM_REGISTRY`; new authorities go in its
+  `AUTHORITIES` dict. No Python changes needed for either.
 
-## Project structure
+### New files
 
 ```
-raj_exam_bot/
-├── main.py                     # Telegram bot entrypoint (python-telegram-bot wiring)
-├── test_live.py                # Real network verification — run AFTER deployment
-├── requirements.txt
-├── render.yaml                 # Render Background Worker config
-├── runtime.txt                 # Pinned Python version
-├── .env.example
-├── config/
-│   ├── settings.py             # Env-var driven settings, domain allowlist
-│   └── exam_sources.py         # Seed authority registry (web-verified 2026-09-15)
-├── database/
-│   ├── models.py                # Authority / Exam / Document dataclasses
-│   └── db.py                    # SQLite persistence (schema, upserts, cache table)
-├── services/
-│   ├── exam_normalizer.py       # Reusable alias + fuzzy-match name normalizer
-│   ├── exam_registry_data.py    # Seed canonical exam list
-│   ├── authority_registry.py    # Loads/queries authorities
-│   ├── document_discovery.py    # Generic link-crawler + filter
-│   ├── rssb_parser.py           # RSSB/RSMSSB-specific source pages
-│   ├── rpsc_parser.py           # RPSC-specific source pages
-│   ├── source_verifier.py       # Extracts year/shift/set/paper/doc-type from link text
-│   ├── pdf_validator.py         # The real PDF verification pipeline
-│   └── exam_cache.py            # SQLite-backed cache
-├── handlers/
-│   ├── start.py                 # /start (pure message builder, no telegram import)
-│   └── exam_commands.py         # /exam + callback logic (pure message/button builders)
-├── utils/
-│   ├── http_client.py           # SSRF-hardened HTTP client (domain allowlist, IP checks,
-│   │                             #   manual redirect validation, size cap, timeout)
-│   └── logger.py
-└── tests/                       # 106 offline unit tests (see below)
+config/
+├── __init__.py
+└── exam_sources.py          # AUTHORITIES (official base URLs/archive pages)
+                              # + EXAM_REGISTRY (fast-path known exams)
+handlers/
+├── __init__.py
+└── exam_commands.py         # /exam command + report rendering
+services/
+├── authority_discovery.py   # exam name -> (exam, authority) identification
+├── document_discovery.py    # crawl + classify + tier-rank + dedupe documents
+├── pdf_validator.py         # HTTPS/SSRF/content-type/size verification
+└── exam_cache.py            # TTL cache + per-domain rate limiter
 ```
 
-Handlers are split into a **pure logic layer** (plain dicts describing
-text + buttons — testable without the `telegram` package) and a thin
-adapter in `main.py` that converts those into real
-`InlineKeyboardMarkup`/`InlineKeyboardButton` objects. This is why the
-offline test suite can verify 100% of the bot's decision logic even
-though `python-telegram-bot` itself isn't installed in this build
-environment.
+### Supported authorities (extensible)
 
-## Supported authorities (seed registry)
-
-| Authority | Official domain | Web-verified 2026-09-15? |
+| Authority | Conducts (examples) | Archive pages configured? |
 |---|---|---|
-| RSSB | rssb.rajasthan.gov.in | ✅ yes |
-| RSMSSB | rsmssb.rajasthan.gov.in | ✅ yes |
-| RPSC | rpsc.rajasthan.gov.in | ✅ yes |
-| BSER / RBSE (REET) | rajeduboard.rajasthan.gov.in | ✅ yes |
-| Rajasthan Recruitment Portal | recruitment.rajasthan.gov.in | ✅ yes |
-| Rajasthan High Court | hcraj.nic.in | ⚠️ carried over from brief, not re-checked live |
+| **RSSB** (`rsmssb.rajasthan.gov.in`) | CET Senior Secondary, CET Graduation, Patwari, VDO, LDC, Clerk, Lab Assistant, Agriculture Supervisor, Animal Attendant, Junior Instructor, Supervisor, Stenographer, Informatics Assistant, Hostel Superintendent | ✅ Syllabus, Question Paper, Answer Key |
+| **RPSC** (`rpsc.rajasthan.gov.in`) | RAS, SI/Platoon Commander, School Lecturer (1st Grade), Senior Teacher (2nd Grade), Assistant Professor, Junior Legal Officer, Assistant Engineer, Statistical Officer, Agriculture Officer | ✅ Syllabus, Question Paper, Answer Key |
+| **RBSE/REET** (`rajeduboard.rajasthan.gov.in`) | REET Level 1, REET Level 2, RTET | ✅ Syllabus, Question Paper, Answer Key |
+| **Rajasthan High Court** (`hcraj.nic.in`) | Civil Judge, LDC, Junior Judicial Assistant, etc. | Authority identified only — archive pages not yet configured |
+| **Rajasthan Police** (`police.rajasthan.gov.in`) | Constable, Home Guard | Authority identified only — archive pages not yet configured |
 
-**Two corrections made during the build**, exactly the kind of mistake
-this bot exists to prevent:
-- The brief's suggested REET URL `reet2024.co.in` is **not** an official
-  government domain. REET is conducted by BSER at
-  `rajeduboard.rajasthan.gov.in`. `reet2024.co.in` is excluded from the
-  domain allowlist.
-- `rpsc.rajasthansarkar.in` (which surfaced in search results) is an
-  unofficial look-alike site, not RPSC's own domain. Also excluded.
+For an authority with no archive pages configured, the bot correctly
+names the authority and links to its homepage, but honestly says
+document discovery isn't set up for it yet — it never guesses.
 
-Both exclusions are enforced in code via `KNOWN_UNOFFICIAL_DOMAINS` in
-`config/exam_sources.py` and the `ALLOWED_DOMAINS` allowlist in
-`config/settings.py` — the HTTP client refuses to even connect to a
-non-allowlisted domain (SSRF protection doubles as an official-source
-guarantee).
+### How exam identification works
 
-Rajasthan Police, Cooperative Recruitment Board, Housing Board, DISCOMs,
-health/medical recruitment bodies, and university recruitment bodies were
-**not** independently confirmed this session (see
-`UNCONFIRMED_AUTHORITY_LEADS` in `config/exam_sources.py`) and are
-intentionally left out of the allowlist rather than guessed.
+1. **Registry match** (`authority_discovery.match_registry_exam`) — checks
+   the free text against `EXAM_REGISTRY`'s names/aliases first (exact
+   substring for common phrasing, dampened fuzzy match for typos on
+   longer names only — short aliases like `"si"` are excluded from fuzzy
+   matching specifically because they're accidental substrings of
+   unrelated words, e.g. "as-**si**stant").
+2. **Keyword authority guess** — if no exact exam matches, authority
+   `keyword_hints` are checked so an exam outside the registry can still
+   be routed to the right conducting body.
+3. **Honest "not found"** — if neither matches, the bot says so instead
+   of guessing.
 
-## Security protections
+### How document discovery + priority works
 
-- Domain allowlist checked **before** any request (SSRF mitigation).
-- DNS resolution result checked against private/loopback/link-local/
-  reserved IP ranges — rejects DNS-rebinding style attacks even against
-  an allowlisted hostname.
-- Redirects followed **manually**, one hop at a time, re-validating the
-  allowlist and IP-safety on every hop (an allowlisted page can't redirect
-  you somewhere unsafe), with a hard hop-count limit.
-- Response bodies streamed and capped at `MAX_DOWNLOAD_BYTES` (default
-  25MB) to prevent memory/disk exhaustion.
-- Single connect+read timeout enforced on every request.
-- Downloaded content is **never executed**, imported, or eval'd anywhere.
-- `BOT_TOKEN` is read only from an environment variable; it is never
-  hardcoded and `.env` is gitignored.
+For each configured archive page (`document_discovery.py`):
+1. Fetch (cached, rate-limited per domain) → extract every PDF link.
+2. Keep only links whose text/href mentions the exam's aliases (this is
+   what prevents Patwari PDFs from ever appearing under a CET search).
+3. Classify by keyword: syllabus / question paper (**Master Question
+   Paper** tier > regular) / answer key (**Revised Final** > **Final** >
+   **Primary** > **Provisional**).
+4. Detect year and paper number from the link text.
+5. For each (year, paper) group, keep only the **highest-tier** document
+   — so a Final Answer Key silently replaces the Provisional one that
+   preceded it, without deleting other years.
+6. Verify each surviving candidate via `pdf_validator.verify_pdf_url`
+   (HTTPS + SSRF-safe + real PDF content-type/magic-bytes + size cap).
+   Only verified links reach the user.
 
-## Cache
+### Caching, rate limiting & security
 
-SQLite-backed, key = `authority|exam|document_type|year|paper|subject|
-shift|doc_set`, default TTL 6 hours (`CACHE_TTL_SECONDS`). Verification
-timestamp is stored on each `Document.verified_at`.
+- `services/exam_cache.py` caches both raw archive-page scrapes and
+  fully classified/verified document lists (6-hour TTL — good enough for
+  official pages that don't change every minute), keyed by
+  `exam + authority + document_type`.
+- A `DomainRateLimiter` enforces a minimum interval between requests to
+  the same domain, so the bot is a well-behaved crawler even under load.
+- `services/pdf_validator.py` blocks non-HTTP(S) schemes, resolves and
+  rejects private/loopback/link-local IPs (SSRF), re-validates the host
+  after every redirect, caps response size, and times out every request
+  — a slow or hostile official site can never hang or crash the bot.
 
-## Offline tests actually executed (106/106 passing)
+---
 
-Run in this exact build environment:
+## ✅ Phase 1 features (fully working)
+
+- **📋 Syllabus engine** — exam → level/stage → paper (→ subject group where
+  applicable) → structured syllabus with an official PDF button.
+- **📝 PYQ / Old Paper engine** — exam → level → paper → *dynamically
+  discovered* years, each backed by a real PDF link found on the official
+  government page at request time (never a hardcoded/guessed year).
+- **🔎 Other Exam** — free-text search for exams outside the curated
+  Rajasthan list (SSC, UPSC, CTET, NEET, JEE, Railway, etc.), restricted to
+  known official domains.
+- **Natural language input** — typing `"REET Level 1 syllabus"`,
+  `"patwari old paper 2025"`, `"ras mains paper 1"` etc. works without
+  touching a single button.
+- **Anti-hallucination by design** — the bot never invents exam years, PDF
+  URLs, question counts, marks, or syllabus topics. Where data isn't
+  verified it says so explicitly instead of guessing.
+
+## 🚧 Placeholder-only (Phase 2+, not implemented yet)
+
+- 🧠 Mock Test
+- 📝 Notes
+- 🤖 Ask AI
+- ⏰ Reminder
+- 📊 Student Progress
+
+These buttons exist in the main menu and show a clean "coming soon"
+message — they do not fake functionality.
+
+---
+
+## Folder structure
 
 ```
-$ python3 -m unittest discover -s tests -p "test_*.py"
-...
-Ran 106 tests in 0.13s
-
-OK
+exam-saathi-ai/
+├── bot.py                    # FastAPI app + all Telegram handlers
+├── requirements.txt
+├── render.yaml
+├── README.md
+├── data/
+│   └── exams.json            # curated syllabus/UI data for the original 6 exams
+├── config/
+│   ├── __init__.py
+│   └── exam_sources.py       # authority + exam registry (see "General Discovery System")
+├── handlers/
+│   ├── __init__.py
+│   └── exam_commands.py      # /exam command + generic report rendering
+└── services/
+    ├── __init__.py
+    ├── exam_engine.py        # syllabus lookups, keyboards, NL matching (original 6 exams)
+    ├── pyq_engine.py         # PYQ year discovery + formatting (original 6 exams)
+    ├── official_search.py    # low-level fetch/extract/classify primitives (shared)
+    ├── authority_discovery.py# exam name -> (exam, authority) identification
+    ├── document_discovery.py # generic multi-authority document discovery + tiering
+    ├── pdf_validator.py      # PDF link verification (HTTPS/SSRF/content-type/size)
+    └── exam_cache.py         # TTL cache + per-domain rate limiter
 ```
 
-Covered without any network access:
-- `test_normalizer.py` (23 tests) — every alias example from the brief
-  (SI/Sub Inspector, CET 12/CET Senior, 3rd Grade/Primary Teacher Level 1,
-  REET L1/REET Level 1, ...) plus gibberish/empty-string rejection.
-- `test_http_client.py` (13 tests) — domain allowlist incl. the two
-  unofficial look-alikes, private/loopback/link-local IP rejection
-  (mocked DNS), DNS-failure handling, disallowed-scheme rejection.
-- `test_pdf_validator.py` (14 tests) — real PDF passes; HTML/error page,
-  404, tiny fake PDF, missing magic bytes, non-HTTPS, and every
-  SSRF/redirect/size exception type are all correctly turned into a
-  failed result instead of a crash; identity-token confidence scoring.
-- `test_document_discovery.py` (9 tests) — link parsing, relative-URL
-  resolution, filtering by exam name / doc type / year, and that a
-  disallowed domain or a broken page never raises.
-- `test_source_verifier.py` (12 tests) — year/shift/set/paper/doc-type/
-  answer-key-status extraction from realistic link text.
-- `test_exam_service.py` (6 tests) — the full orchestration: a verified
-  PDF flows through to a VERIFIED document with the final URL; a broken
-  PDF correctly falls back to SOURCE_PAGE_ONLY with `pdf_url=None`
-  (never the broken link); zero candidates never crashes.
-- `test_handlers.py` (13 tests) — `/start` has no Phase 2 features;
-  unknown exam gets no buttons; exam card gets exactly the right 3
-  callback buttons + an official-source URL button; REJECTED documents
-  produce **zero** buttons (no empty/fake buttons); VERIFIED documents
-  point at `pdf_url`, never `source_page`.
-- `test_db.py` (5 tests), `test_cache.py` (6 tests) — SQLite schema,
-  upsert idempotency, cache expiry.
+Adding a new exam or a new phase never requires touching `bot.py`'s core
+routing — only `data/exams.json` and, for genuinely new behaviour, the
+relevant service module.
 
-Plus, separately: `python3 -m py_compile` on every `.py` file in the
-project (syntax check) and an import check of every module except
-`main.py` (which needs `python-telegram-bot`, not installed in this
-sandbox — see next section).
+---
 
-## What could NOT be run in this sandbox
+## Environment variables
 
-- **`main.py` was not import-tested or run**, because
-  `python-telegram-bot` is not installed here and the sandbox has no
-  network access to `pip install` it. Every function `main.py` calls
-  (`exam_service.*`, `handlers.exam_commands.*`, `handlers.start.*`) IS
-  covered by the offline suite above; `main.py` itself is a thin,
-  manually-reviewed adapter (dict → `InlineKeyboardMarkup`).
-- **No live HTTP requests to any `.rajasthan.gov.in` / `.nic.in` site**
-  were made by the test suite — the sandbox has no outbound network
-  access at all. All such tests use mocked responses.
-- Consequently, **no claim is made that any specific 2026 exam PDF is
-  currently live and verified.** That can only be established by running
-  `test_live.py` for real, after deployment.
+| Variable      | Required | Description                                                                 |
+|---------------|----------|-------------------------------------------------------------------------------|
+| `BOT_TOKEN`   | Yes      | Telegram bot token from [@BotFather](https://t.me/BotFather).                |
+| `WEBHOOK_URL` | Recommended | Public base URL of your deployment, e.g. `https://exam-saathi-ai.onrender.com`. If set, the app configures the Telegram webhook automatically on startup. |
 
-## Running `test_live.py` after deployment
+Never commit these to GitHub. Set them in Render's dashboard (or a local
+`.env` file that is **not** committed) instead.
 
-Once deployed (Render or any machine with internet access):
+---
+
+## Running locally
 
 ```bash
+python -m venv venv
+source venv/bin/activate        # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-python test_live.py                       # runs the 11 default test-case exams
-python test_live.py "Patwar"              # run just one
-python test_live.py --json live_report.json
+
+export BOT_TOKEN="123456:your-telegram-token"
+# Local testing without a public URL: skip WEBHOOK_URL and use a tunnel
+# (e.g. ngrok) if you want to test webhooks locally, or temporarily poll
+# instead (see "Local polling" note below).
+
+uvicorn bot:api --host 0.0.0.0 --port 8000
 ```
 
-For each exam it will print, per document type: every candidate URL
-discovered, the source page it came from, the final URL after redirects,
-HTTP status, Content-Type, PDF magic-byte result, and whether it ended up
-VERIFIED / REJECTED / SOURCE_PAGE_ONLY — plus a summary table at the end.
-If an archive page turns out to render its links via JavaScript (a known
-possibility flagged in `services/document_discovery.py`'s docstring),
-this will show up honestly as 0 candidates discovered, not a false
-success.
+Then, if you have a tunnel (e.g. `ngrok http 8000`), set:
 
-## Render deployment
+```bash
+export WEBHOOK_URL="https://<your-ngrok-id>.ngrok.io"
+```
+and restart — the app will call `setWebhook` automatically pointing at
+`WEBHOOK_URL + /telegram/webhook`.
 
-This bot uses long-polling (`Application.run_polling`), so it should be
-deployed as a **Background Worker**, not a Web Service (no HTTP port is
-opened). `render.yaml` is provided:
+**Local polling alternative:** if you don't want to deal with webhooks
+while developing, you can temporarily run
+`application.run_polling()` in a throwaway script that imports
+`bot.application` — the handlers are identical either way.
 
-- **Build Command:** `pip install -r requirements.txt`
-- **Start Command:** `python main.py`
-- **Required env var:** `BOT_TOKEN` (set in Render's Environment tab —
-  get it from [@BotFather](https://t.me/BotFather); never commit it)
+---
 
-## Known limitations (stated honestly)
+## Deploying to Render
 
-- Some Rajasthan government archive pages may render document links via
-  client-side JavaScript; this build's discovery layer only sees
-  server-rendered HTML (no headless browser dependency was available/
-  installable in the build sandbox). Where that happens, the bot will
-  correctly fall back to an "🌐 Official Source" link rather than a fake
-  PDF button — but will not surface a direct-download button either,
-  until a JS-rendering discovery backend is added (candidate Phase 2
-  item).
-- PDF identity verification checks the final URL, filename, and
-  discovered link text for expected tokens (year/shift/set/paper) — it
-  does not parse the PDF's own internal text layer (no PDF-text-extraction
-  dependency was available/installable in the build sandbox). This is a
-  deliberately honest "MEDIUM/LOW confidence" signal rather than a
-  fabricated "HIGH confidence" one when those tokens aren't present in
-  the surface metadata.
-- Coverage claim: **maximum possible coverage through authority + exam +
-  document discovery architecture; coverage depends on official sources
-  being publicly accessible and not requiring JavaScript rendering or a
-  login.** This is not a claim that "all Rajasthan exams are supported."
+1. Push this project to a GitHub repo (root of the repo = root of this
+   project — no extra nesting).
+2. On Render: **New → Web Service** → connect the repo. Render will read
+   `render.yaml` automatically, or set manually:
+   - **Build Command:** `pip install -r requirements.txt`
+   - **Start Command:** `uvicorn bot:api --host 0.0.0.0 --port $PORT`
+3. Add environment variables `BOT_TOKEN` and `WEBHOOK_URL` (the latter is
+   your Render service URL, e.g. `https://exam-saathi-ai.onrender.com`)
+   in the Render dashboard.
+4. Deploy. On startup the app calls Telegram's `setWebhook` pointing to
+   `WEBHOOK_URL/telegram/webhook`.
 
-## Phase 2 (not built — waiting for explicit instruction)
+### Webhook behaviour
 
-Mock tests, current affairs, user rankings/progress, notifications, paid
-features/subscriptions, and an AI tutor are explicitly out of scope for
-this Phase 1 delivery.
+- Webhook path: **`/telegram/webhook`** (POST).
+- The webhook is **(re)configured on every startup** if `WEBHOOK_URL` is
+  set — so a Render restart or redeploy re-registers it automatically.
+- The webhook is **never deleted on shutdown** — this is intentional so
+  routine Render restarts don't cause a window where Telegram has no
+  webhook registered.
+- `GET /` is a simple health check Render can ping.
+
+---
+
+## How to add a new exam
+
+Edit `data/exams.json` → add a new key under `"exams"`:
+
+```json
+"my_new_exam": {
+  "id": "my_new_exam",
+  "name": "My New Exam",
+  "full_name": "Full official name",
+  "aliases": ["shortname", "common misspelling"],
+  "source_label": "Official <Authority Name>",
+  "official_syllabus_pdf": "https://official-domain.gov.in/syllabus.pdf",
+  "official_archive": "https://official-domain.gov.in/",
+  "levels": {
+    "level_id": {
+      "id": "level_id",
+      "name": "Display Name",
+      "aliases": ["alt name"],
+      "papers": {
+        "paper_id": {
+          "id": "paper_id",
+          "name": "Paper Display Name",
+          "aliases": [],
+          "questions": null,
+          "marks": null,
+          "duration": null,
+          "pattern_verified": false,
+          "subjects": []
+        }
+      }
+    }
+  }
+}
+```
+
+Also add an entry under `"pyq_sources"` with the official page(s) where
+that exam's past papers are published, so the PYQ engine can crawl them.
+
+**Rule:** never fill `questions` / `marks` / `duration` with numbers you
+haven't verified against an official source — leave them `null` and set
+`"pattern_verified": false`. The bot will render an honest "verify in
+official PDF" message instead of a possibly-wrong number.
+
+## How to add an official PDF
+
+- For a **syllabus PDF**, set `official_syllabus_pdf` on the exam (or
+  `official_pdf` on a specific paper if different papers have different
+  syllabus documents, like RAS/SI).
+- For **past-paper PDFs**, you don't hardcode individual years — add the
+  official archive/listing page URL to `pyq_sources` for that exam, and
+  `services/official_search.py` will discover and classify individual
+  year PDFs automatically at request time (cached for 6 hours).
+
+---
+
+## Anti-hallucination rules baked into the code
+
+- `pattern_verified: false` in `exams.json` blocks the bot from ever
+  printing questions/marks/duration for that paper.
+- The PYQ engine only shows a year button if a PDF link mentioning that
+  year was physically present on the fetched official page — it never
+  fabricates a URL.
+- Question papers and answer keys are classified separately and never
+  mislabelled as each other.
+- If a page can't be reached (network error, timeout, site down), the
+  bot says so plainly instead of pretending nothing is wrong or
+  guessing content.
+
+---
+
+## Error handling & resilience
+
+- All callback data is parsed defensively — malformed/unknown
+  `callback_data` falls back to the main menu instead of crashing.
+- Network calls (`httpx`) are wrapped in try/except for timeouts and
+  transport errors.
+- A global Telegram error handler logs unhandled exceptions instead of
+  letting them crash the process.
+- The webhook endpoint always returns HTTP 200 to Telegram (even on
+  internal errors) so Telegram doesn't get stuck retrying a bad update.
+
+---
+
+## Verifying the project
+
+```bash
+python -m py_compile bot.py services/*.py
+python -c "import json; json.load(open('data/exams.json'))"
+```
+
+Both commands should complete with no output/errors.
+
+---
+
+## Extending the general discovery system
+
+- **New exam under an existing authority** (RSSB/RPSC/RBSE): add one
+  entry to `EXAM_REGISTRY` in `config/exam_sources.py` — name, aliases,
+  `authority` id. That's it; `document_discovery.py` already knows how to
+  crawl that authority's configured archive pages for it.
+- **New authority entirely** (e.g. a board not yet listed): add an entry
+  to `AUTHORITIES` with its **verified** `base_url`. If you don't yet have
+  its archive-page URLs, leave `doc_pages` empty — the bot will still
+  correctly name the authority and link to its homepage rather than
+  guessing.
+- **Never** add a `base_url` or archive-page URL you haven't personally
+  verified — an unverified guess is worse than an honest "not configured
+  yet".
+
+## Phase 1 limitations
+
+- Detailed subject → topic → sub-topic breakdowns are only populated for
+  REET (well-documented, stable pattern). Other exams currently link
+  directly to the official syllabus PDF rather than a fabricated topic
+  list.
+- Exam pattern numbers (question count / marks / duration) are shown
+  only for REET, since the spec forbids inventing unverified figures for
+  exams whose pattern wasn't explicitly confirmed against an official
+  source in this build.
+- `official_syllabus_pdf` / advertisement PDF links (especially for
+  Patwari and CET, which live at `.../advertisement_item/<id>.pdf` URLs)
+  are tied to a specific recruitment cycle and **will need updating**
+  when RSSB publishes a new notification — update
+  `data/exams.json`, no code change needed.
+- "Other Exam" search only recognises a small curated set of domains
+  (`known_official_domains` in `exams.json`); anything else is answered
+  honestly as "could not be verified" rather than guessed.
+- Mock Test, Notes, Ask AI, Reminder, and Student Progress are UI
+  placeholders only (see Future Phases below).
+
+## Future phases (architecture is ready for these)
+
+| Phase | Feature | Notes |
+|-------|---------|-------|
+| 2 | 🧠 Mock Test | exam → subject → topic → question count → timer → score → explanations → weak-topic tracking |
+| 3 | 📝 Notes | short/detailed/revision notes, PDF notes where legally available |
+| 4 | 🤖 Ask AI | Hindi doubt-solving, MCQ solving, concept explanation |
+| 5 | ⏰ Reminder | daily study reminders, exam countdowns, revision reminders |
+| 6 | 📊 Student Progress | mock scores, weak subjects, streaks, analytics |
+
+Each phase should get its own `services/<phase>_engine.py`, following the
+same pattern as `exam_engine.py` / `pyq_engine.py`, and its own menu
+branch in `bot.py`'s `on_callback` router.

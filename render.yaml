@@ -1,14 +1,13 @@
 services:
-  - type: worker
-    name: rajasthan-exam-info-bot
+  - type: web
+    name: exam-saathi-ai
     env: python
     plan: free
-    buildCommand: pip install -r requirements.txt
-    startCommand: python main.py
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn bot:api --host 0.0.0.0 --port $PORT"
     envVars:
       - key: BOT_TOKEN
         sync: false
-      - key: DATABASE_PATH
-        value: data/raj_exam_bot.sqlite3
-      - key: PYTHON_VERSION
-        value: 3.12.3
+      - key: WEBHOOK_URL
+        sync: false
+    healthCheckPath: /
