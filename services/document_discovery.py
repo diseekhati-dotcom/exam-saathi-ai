@@ -1,216 +1,132 @@
 """
-document_discovery.py
-----------------------
-The generic "find syllabus / question papers / answer keys for ANY
-Rajasthan exam" engine described in the spec. It deliberately reuses the
-low-level fetch/extract primitives already in `official_search.py`
-(fetch_page, extract_pdf_links, is_relevant) instead of duplicating a
-second scraper — it only adds what's new:
+Generic, discovery-based document finder.
 
-  - tiered classification (Final/Revised Final > Primary > Provisional
-    for answer keys; Master Question Paper > regular for papers)
-  - paper-number detection (Paper I/II/III... or Paper 1/2/3...)
-  - per-(year, paper) "best document" selection using those tiers
-  - PDF verification via pdf_validator before anything is returned
-  - caching + rate limiting via exam_cache
+This is the PRIMARY discovery mechanism required by the brief: it is not
+a hardcoded per-exam URL table. Given an authority + exam (+ optional
+year/doc_type filters), it:
 
-Nothing here invents a PDF, a year, or a paper number that wasn't
-actually present on an official archive page.
+  1. Starts from the authority's known official page(s) (config/exam_sources.py
+     or an authority-specific parser's archive URLs).
+  2. Fetches each page through the SSRF-hardened HTTP client.
+  3. Parses all <a href> links with BeautifulSoup.
+  4. Uses services/source_verifier.py to guess each link's identity
+     (doc type / year / shift / etc.) from its link text + URL.
+  5. Filters links whose text matches the exam's name/aliases and the
+     requested doc type/year.
+  6. Returns *candidate* links (source_page + candidate url) — NOT yet
+     verified as a direct PDF. services/exam_service.py hands these to
+     pdf_validator.validate_pdf_url() for the real verification step
+     before anything is ever shown to a user.
+
+KNOWN LIMITATION (documented honestly): some Rajasthan government archive
+pages render their document list via client-side JavaScript. This module
+only sees what is present in the initial HTML response (no headless
+browser is available in this build environment). Where a page's real
+document links only appear after JS execution, this discovery step will
+correctly find zero candidates, and the calling service will correctly
+fall back to offering the official *source page* rather than fabricating
+a PDF link. This is the safe/honest failure mode the brief explicitly
+asks for.
 """
+from dataclasses import dataclass
+from typing import List, Optional
+from urllib.parse import urljoin
 
-from __future__ import annotations
+from bs4 import BeautifulSoup
 
-import re
-from dataclasses import dataclass, field
-from typing import Optional
-from urllib.parse import urlparse
+from services import source_verifier
+from services.exam_normalizer import normalize_text
+from utils.http_client import safe_request, DisallowedDomainError, UnsafeAddressError
+from utils.logger import get_logger
 
-from services import official_search, pdf_validator, exam_cache
-
-PAPER_NUM_RE = re.compile(r"paper[\s\-]*(?:no\.?|number)?[\s\-]*([ivx]+|\d{1,2})(?!\d)", re.IGNORECASE)
-ROMAN_MAP = {"i": 1, "ii": 2, "iii": 3, "iv": 4, "v": 5, "vi": 6, "vii": 7, "viii": 8}
-
-# Answer-key tiers: higher number = higher priority
-ANSWER_KEY_TIERS = {
-    "revised_final": 4,
-    "final": 3,
-    "primary": 2,
-    "provisional": 1,
-    "unknown": 0,
-}
-ANSWER_KEY_TIER_KEYWORDS = [
-    (["revised final", "revised answer key"], "revised_final"),
-    (["final answer key", "final key"], "final"),
-    (["primary answer key"], "primary"),
-    (["provisional answer key", "provisional key"], "provisional"),
-]
-
-QUESTION_PAPER_TIERS = {"master": 2, "regular": 1, "unknown": 0}
-QP_TIER_KEYWORDS = [
-    (["master question paper", "master paper"], "master"),
-]
-
-MAX_VERIFY_PER_REQUEST = 12  # cap how many links we actually HEAD-verify per call, for speed
+log = get_logger(__name__)
 
 
 @dataclass
-class DocEntry:
-    title: str
+class CandidateLink:
     url: str
-    doc_type: str          # syllabus | question_paper | answer_key
-    year: Optional[str]
-    paper_number: Optional[int]
-    tier_label: str
-    tier_rank: int
-    verified: bool
-    source_domain: str = ""
-
-    def to_dict(self) -> dict:
-        return {
-            "title": self.title, "url": self.url, "doc_type": self.doc_type,
-            "year": self.year, "paper_number": self.paper_number,
-            "tier_label": self.tier_label, "tier_rank": self.tier_rank,
-            "verified": self.verified, "source_domain": self.source_domain,
-        }
+    link_text: str
+    source_page: str
+    identity: source_verifier.DocumentIdentity
 
 
-def _detect_paper_number(text: str) -> Optional[int]:
-    m = PAPER_NUM_RE.search(text.lower())
-    if not m:
-        return None
-    raw = m.group(1).lower()
-    if raw.isdigit():
-        return int(raw)
-    return ROMAN_MAP.get(raw)
-
-
-def _answer_key_tier(text: str) -> tuple[str, int]:
-    hay = text.lower()
-    for keywords, label in ANSWER_KEY_TIER_KEYWORDS:
-        if any(k in hay for k in keywords):
-            return label, ANSWER_KEY_TIERS[label]
-    return "unknown", ANSWER_KEY_TIERS["unknown"]
-
-
-def _question_paper_tier(text: str) -> tuple[str, int]:
-    hay = text.lower()
-    for keywords, label in QP_TIER_KEYWORDS:
-        if any(k in hay for k in keywords):
-            return label, QUESTION_PAPER_TIERS[label]
-    return "regular", QUESTION_PAPER_TIERS["regular"]
-
-
-async def _fetch_candidates(page_url: str) -> list[tuple[str, str]]:
-    """Fetch + extract PDF links from one archive page, cached."""
-    cache_key = exam_cache.page_cache.make_key("page", page_url)
-    cached = exam_cache.page_cache.get(cache_key)
-    if cached is not None:
-        return cached
-
-    await exam_cache.rate_limiter.wait(page_url)
-    html = await official_search.fetch_page(page_url)
-    if not html:
-        exam_cache.page_cache.set(cache_key, [], ttl_seconds=5 * 60)  # short TTL for failures
+def fetch_links(page_url: str) -> List[dict]:
+    """Fetch page_url and return [{href, text}] for every <a> tag found.
+    Returns [] (never raises) on any network/parse failure — callers must
+    treat an empty discovery result as 'nothing found here', not a crash."""
+    try:
+        resp = safe_request(page_url, method="GET")
+    except (DisallowedDomainError, UnsafeAddressError) as exc:
+        log.warning("Refusing to fetch %s: %s", page_url, exc)
+        return []
+    except Exception as exc:
+        log.warning("Discovery fetch failed for %s: %s", page_url, exc)
         return []
 
-    links = official_search.extract_pdf_links(html, page_url)
-    exam_cache.page_cache.set(cache_key, links)
+    if resp.status_code != 200:
+        log.info("Discovery page %s returned HTTP %s", page_url, resp.status_code)
+        return []
+
+    content_type = (resp.headers.get("Content-Type") or "").lower()
+    if "text/html" not in content_type and "text" not in content_type:
+        return []
+
+    try:
+        soup = BeautifulSoup(resp.content, "html.parser")
+    except Exception as exc:
+        log.warning("HTML parse failed for %s: %s", page_url, exc)
+        return []
+
+    links = []
+    for a_tag in soup.find_all("a", href=True):
+        href = a_tag["href"].strip()
+        if not href or href.startswith("javascript:") or href.startswith("#"):
+            continue
+        text = a_tag.get_text(separator=" ", strip=True)
+        absolute = urljoin(resp.final_url, href)
+        links.append({"href": absolute, "text": text})
     return links
 
 
-async def discover_document_type(exam_entry: dict, authority: dict, doc_type: str) -> list[DocEntry]:
+def _exam_matches_link_text(exam: dict, link_text: str) -> bool:
+    norm_link = normalize_text(link_text)
+    candidates = [exam["name"]] + list(exam.get("aliases", []))
+    for cand in candidates:
+        norm_cand = normalize_text(cand)
+        if norm_cand and norm_cand in norm_link:
+            return True
+    return False
+
+
+def discover_candidates(
+    source_pages: List[str],
+    exam: dict,
+    doc_type: Optional[str] = None,
+    year: Optional[str] = None,
+    max_pages: int = 5,
+) -> List[CandidateLink]:
     """
-    Discover + verify all documents of one type (syllabus / question_paper /
-    answer_key) for one exam, from one authority's configured archive
-    pages. Returns only verified, classified, deduplicated entries.
+    Crawl each URL in source_pages (shallow — one level, no recursive
+    crawling, to keep this fast/safe) and return candidate links whose
+    text matches the exam name/alias and, if given, the requested
+    doc_type/year.
     """
-    cache_key = exam_cache.doc_cache.make_key("doc", exam_entry["id"], authority["id"], doc_type)
-    cached = exam_cache.doc_cache.get(cache_key)
-    if cached is not None:
-        return cached
-
-    pages = authority.get("doc_pages", {}).get(doc_type, [])
-    if not pages:
-        exam_cache.doc_cache.set(cache_key, [])
-        return []
-
-    aliases = [exam_entry["name"]] + exam_entry.get("aliases", [])
-    candidates: list[DocEntry] = []
-    seen_urls = set()
-
-    for page_url in pages:
-        for text, href in await _fetch_candidates(page_url):
-            if href in seen_urls:
+    candidates: List[CandidateLink] = []
+    for page_url in source_pages[:max_pages]:
+        for link in fetch_links(page_url):
+            if not _exam_matches_link_text(exam, link["text"]):
                 continue
-            if not official_search.is_relevant(text, href, aliases):
+            identity = source_verifier.extract_identity(link["text"], link["href"])
+            if doc_type and identity.doc_type_guess and identity.doc_type_guess != doc_type:
                 continue
-
-            # Some authorities (e.g. RBSE/REET) publish syllabus, question
-            # papers, and answer keys all linked from the SAME archive
-            # page. Without this check, a syllabus PDF on that page would
-            # leak into answer_key results as an unclassified "Document"
-            # just because it was fetched while looking for answer keys.
-            # Gate strictly by the link's own detected type.
-            natural_type = official_search.classify_pdf(text, href)
-            if doc_type == "answer_key" and natural_type != "answer_key":
+            if not source_verifier.matches_requested(identity, requested_year=year, requested_doc_type=doc_type):
                 continue
-            if doc_type == "question_paper" and natural_type != "question_paper":
-                continue
-            if doc_type == "syllabus" and natural_type not in ("syllabus", "notification"):
-                continue
-
-            seen_urls.add(href)
-
-            year = official_search.detect_year(text, href)
-            paper_number = _detect_paper_number(text)
-
-            if doc_type == "answer_key":
-                tier_label, tier_rank = _answer_key_tier(text)
-            elif doc_type == "question_paper":
-                tier_label, tier_rank = _question_paper_tier(text)
-            else:
-                tier_label, tier_rank = "syllabus", 1
-
-            candidates.append(DocEntry(
-                title=text[:150], url=href, doc_type=doc_type, year=year,
-                paper_number=paper_number, tier_label=tier_label, tier_rank=tier_rank,
-                verified=False, source_domain=urlparse(href).netloc,
-            ))
-
-    # --- Priority selection: keep the best-tier doc per (year, paper_number) ---
-    best_by_group: dict[tuple, DocEntry] = {}
-    for c in candidates:
-        group_key = (c.year, c.paper_number)
-        existing = best_by_group.get(group_key)
-        if existing is None or c.tier_rank > existing.tier_rank:
-            best_by_group[group_key] = c
-    selected = list(best_by_group.values())
-
-    # Sort newest year first, then paper number ascending
-    def sort_key(d: DocEntry):
-        year_val = int(d.year) if d.year else -1
-        paper_val = d.paper_number if d.paper_number is not None else 0
-        return (-year_val, paper_val)
-    selected.sort(key=sort_key)
-
-    # --- Verify (capped) so we never show a dead/fake link ---
-    verified_results: list[DocEntry] = []
-    for entry in selected[:MAX_VERIFY_PER_REQUEST]:
-        result = await pdf_validator.verify_pdf_url(entry.url)
-        if result.ok:
-            entry.verified = True
-            if result.final_url:
-                entry.url = result.final_url
-            verified_results.append(entry)
-        # unverified/broken links are silently dropped — never shown
-
-    exam_cache.doc_cache.set(cache_key, verified_results)
-    return verified_results
-
-
-async def discover_documents(exam_entry: dict, authority: dict) -> dict[str, list[DocEntry]]:
-    """Discover syllabus + question_paper + answer_key together for one exam."""
-    result = {}
-    for doc_type in ("syllabus", "question_paper", "answer_key"):
-        result[doc_type] = await discover_document_type(exam_entry, authority, doc_type)
-    return result
+            candidates.append(
+                CandidateLink(
+                    url=link["href"],
+                    link_text=link["text"],
+                    source_page=page_url,
+                    identity=identity,
+                )
+            )
+    return candidates

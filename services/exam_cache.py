@@ -1,70 +1,66 @@
 """
-exam_cache.py
--------------
-Small dependency-free TTL cache plus a per-domain rate limiter, used by
-document_discovery.py so that:
-  - the same official archive page isn't re-scraped on every user request
-    (cache key: exam + authority + document_type [+ year [+ paper]])
-  - we never hammer a single government domain with concurrent requests
+Caching layer.
 
-This is intentionally simple (in-memory, per-process) — good enough for a
-single Render web service instance. Swappable for Redis later without
-changing the calling code, since callers only see get/set/wait.
+Cache key is composed from the dimensions called out in the project
+brief: authority + exam + document_type + year + paper + subject +
+shift + set. Values are JSON-serialized. Expiry uses settings.CACHE_TTL_SECONDS
+unless a caller overrides it. Verification timestamps are stored inside
+the cached value (documents already carry verified_at), satisfying the
+"store verification timestamp" requirement.
 """
-
-from __future__ import annotations
-
-import asyncio
+import json
 import time
 from typing import Any, Optional
-from urllib.parse import urlparse
+
+from database import db
+from config.settings import settings
 
 
-class TTLCache:
-    def __init__(self, default_ttl_seconds: int = 6 * 60 * 60):
-        self._store: dict[str, tuple[float, Any]] = {}
-        self.default_ttl = default_ttl_seconds
-
-    def make_key(self, *parts: Any) -> str:
-        return "|".join(str(p) for p in parts if p is not None)
-
-    def get(self, key: str) -> Optional[Any]:
-        hit = self._store.get(key)
-        if not hit:
-            return None
-        ts, value, ttl = hit[0], hit[1], hit[2] if len(hit) > 2 else self.default_ttl
-        if time.time() - ts > ttl:
-            self._store.pop(key, None)
-            return None
-        return value
-
-    def set(self, key: str, value: Any, ttl_seconds: Optional[int] = None) -> None:
-        self._store[key] = (time.time(), value, ttl_seconds or self.default_ttl)
-
-    def clear(self) -> None:
-        self._store.clear()
+def build_cache_key(
+    authority: str = "",
+    exam: str = "",
+    document_type: str = "",
+    year: str = "",
+    paper: str = "",
+    subject: str = "",
+    shift: str = "",
+    doc_set: str = "",
+) -> str:
+    parts = [authority, exam, document_type, year, paper, subject, shift, doc_set]
+    normalized = [str(p or "").strip().lower().replace(" ", "_") for p in parts]
+    return "doc:" + "|".join(normalized)
 
 
-class DomainRateLimiter:
-    """Ensures at least `min_interval` seconds between requests to the same domain."""
-
-    def __init__(self, min_interval_seconds: float = 1.5):
-        self.min_interval = min_interval_seconds
-        self._last_request: dict[str, float] = {}
-        self._lock = asyncio.Lock()
-
-    async def wait(self, url: str) -> None:
-        domain = urlparse(url).netloc
-        async with self._lock:
-            last = self._last_request.get(domain, 0.0)
-            now = time.time()
-            wait_for = self.min_interval - (now - last)
-            self._last_request[domain] = max(now, last) + (max(wait_for, 0.0))
-        if wait_for > 0:
-            await asyncio.sleep(wait_for)
+def get(key: str) -> Optional[Any]:
+    conn = db.get_connection()
+    raw = db.cache_get(conn, key, now=time.time())
+    if raw is None:
+        return None
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        return None
 
 
-# Shared singletons for the whole process
-page_cache = TTLCache(default_ttl_seconds=6 * 60 * 60)      # raw archive-page scrape results
-doc_cache = TTLCache(default_ttl_seconds=6 * 60 * 60)       # classified/verified document results
-rate_limiter = DomainRateLimiter(min_interval_seconds=1.5)
+def set(key: str, value: Any, ttl_seconds: Optional[int] = None) -> None:
+    ttl = settings.CACHE_TTL_SECONDS if ttl_seconds is None else ttl_seconds
+    conn = db.get_connection()
+    with_expiry = time.time() + ttl
+    db.cache_set(conn, key, json.dumps(value), with_expiry)
+    conn.commit()
+
+
+def delete(key: str) -> None:
+    conn = db.get_connection()
+    db.cache_delete(conn, key)
+    conn.commit()
+
+
+def get_or_compute(key: str, compute_fn, ttl_seconds: Optional[int] = None) -> Any:
+    """Return the cached value for `key`, or call compute_fn() and cache it."""
+    cached = get(key)
+    if cached is not None:
+        return cached
+    value = compute_fn()
+    set(key, value, ttl_seconds=ttl_seconds)
+    return value
